@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/themichaellai/stacked-branches/git"
@@ -59,55 +60,24 @@ func getMergeBases(targetRef string, refs []string) (refToMergeBase map[string]s
 	}
 }
 
-type Node struct {
-	Hash string
-	// Children are commits that are newer
-	Children []string
-	// Parent is the commit that is older
-	Parent string
+func sortRefs(refs []string) error {
+	var err error
+	slices.SortFunc(refs, func(a, b string) int {
+		if err != nil {
+			return 0
+		}
+		var isAncestor bool
+		if a == b {
+			return 0
+		}
+		isAncestor, err = git.IsAncestor(a, b)
+		if isAncestor {
+			return -1
+		}
+		return 1
+	})
+	return err
 }
-
-//func getCandidateStack(logs map[string]([]git.Commit), targetRef string) ([]string, error) {
-//	// Build commit tree
-//	//hashTree := map[string]([]string){}
-//	//refToHead := map[string]string{}
-//	//for ref, log := range logs {
-//	//	fmt.Println(ref)
-//	//	refToHead[ref] = log[0].Hash
-//	//	for idx, commit := range log[:len(log)-1] {
-//	//		hashTree[commit.Hash] = append(hashTree[commit.Hash], log[idx+1].Hash)
-//	//	}
-//	//}
-//	tree := map[string]*Node{}
-//	for ref, log := range logs {
-//		fmt.Println(ref)
-//		for idx, commit := range log[:len(log)-1] {
-//			node := tree[commit.Hash]
-//			fmt.Printf("curr hash: %s\n", commit.Hash)
-//			if node == nil {
-//				node = &Node{Hash: commit.Hash}
-//				tree[commit.Hash] = node
-//			}
-//			if node.Parent != "" && node.Parent != log[idx+1].Hash {
-//				fmt.Printf("node.Parent: %s, log[idx+1].Hash: %s\n", node.Parent, log[idx+1].Hash)
-//				return nil, fmt.Errorf("foo")
-//			}
-//			node.Parent = log[idx+1].Hash
-//			if idx != 0 {
-//				node.Children = append(node.Children, log[idx-1].Hash)
-//			}
-//		}
-//	}
-//	for _, commit := range logs[targetRef] {
-//		fmt.Println(commit)
-//	}
-//
-//	// Find merge base for target ref with all other refs
-//	// Do this by commit hash, but in future can use commit message as well
-//	// Order refs with the highest number of common commits into stack
-//
-//	return nil, nil
-//}
 
 func getCandidateStack(targetRef string) ([]string, error) {
 	recentHeads, err := git.GetRecentHeads()
@@ -130,11 +100,16 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("could not get current branch: %w", err)
 	}
-	stack, err := getCandidateStack(currentBranch)
+	stackRefs, err := getCandidateStack(currentBranch)
 	if err != nil {
 		return fmt.Errorf("error building stack: %w", err)
 	}
-	fmt.Printf("stack: %#v\n", stack)
+	if err := sortRefs(stackRefs); err != nil {
+		return fmt.Errorf("error sorting: %w", err)
+	}
+	for _, stackRef := range stackRefs {
+		fmt.Println(stackRef)
+	}
 	return err
 }
 
