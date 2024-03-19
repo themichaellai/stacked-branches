@@ -32,10 +32,12 @@ type Commit struct {
 	Message string
 }
 
-const mainBranch = "origin/main"
+type Client struct {
+	MainBranch string
+}
 
-func GetLogs(ref string) ([]Commit, error) {
-	out, err := exec.Command("git", "log", `--pretty=format:%H	%s`, fmt.Sprintf("%s..%s", mainBranch, ref)).Output()
+func (c Client) GetLogs(ref string) ([]Commit, error) {
+	out, err := exec.Command("git", "log", `--pretty=format:%H	%s`, fmt.Sprintf("%s..%s", c.MainBranch, ref)).Output()
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +59,7 @@ func GetLogs(ref string) ([]Commit, error) {
 }
 
 // Returns true if refA is an ancestor of refB
-func IsAncestor(refA string, refB string) (bool, error) {
+func (c Client) IsAncestor(refA string, refB string) (bool, error) {
 	cmd := exec.Command("git", "merge-base", "--is-ancestor", refA, refB)
 	if err := cmd.Run(); err != nil {
 		// --is-ancestor returns exit code 1 if the commit is not a part of main.
@@ -69,20 +71,20 @@ func IsAncestor(refA string, refB string) (bool, error) {
 	return true, nil
 }
 
-func MergeBase(refA string, refB string) (_ string, onMain bool, _ error) {
+func (c Client) MergeBase(refA string, refB string) (_ string, onMain bool, _ error) {
 	mergeBaseOut, err := exec.Command("git", "merge-base", refA, refB).Output()
 	if err != nil {
 		return "", false, err
 	}
 	hash := strings.TrimSpace(string(mergeBaseOut))
-	isOnMain, err := IsAncestor(hash, mainBranch)
+	isOnMain, err := c.IsAncestor(hash, c.MainBranch)
 	if err != nil {
 		return hash, false, err
 	}
 	return hash, isOnMain, nil
 }
 
-func CurrentBranch() (string, error) {
+func (c Client) CurrentBranch() (string, error) {
 	out, err := exec.Command("git", "symbolic-ref", "HEAD").Output()
 	if err != nil {
 		return "", err

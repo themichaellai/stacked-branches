@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"sync"
 
@@ -10,7 +11,7 @@ import (
 
 const concurrency = 10
 
-func getMergeBases(targetRef string, refs []string) (refToMergeBase map[string]string, _ error) {
+func getMergeBases(gitClient git.Client, targetRef string, refs []string) (refToMergeBase map[string]string, _ error) {
 	type result struct {
 		ref  string
 		base string
@@ -31,7 +32,7 @@ func getMergeBases(targetRef string, refs []string) (refToMergeBase map[string]s
 		go func() {
 			defer wg.Done()
 			for ref := range workRefs {
-				mergeBase, onMain, err := git.MergeBase(targetRef, ref)
+				mergeBase, onMain, err := gitClient.MergeBase(targetRef, ref)
 				if err != nil {
 					errChan <- err
 					return
@@ -60,7 +61,7 @@ func getMergeBases(targetRef string, refs []string) (refToMergeBase map[string]s
 	}
 }
 
-func sortRefs(refs []string) error {
+func sortRefs(gitClient git.Client, refs []string) error {
 	var err error
 	slices.SortFunc(refs, func(a, b string) int {
 		if err != nil {
@@ -70,7 +71,7 @@ func sortRefs(refs []string) error {
 		if a == b {
 			return 0
 		}
-		isAncestor, err = git.IsAncestor(a, b)
+		isAncestor, err = gitClient.IsAncestor(a, b)
 		if isAncestor {
 			return -1
 		}
@@ -79,12 +80,12 @@ func sortRefs(refs []string) error {
 	return err
 }
 
-func getCandidateStack(targetRef string) ([]string, error) {
+func getCandidateStack(gitClient git.Client, targetRef string) ([]string, error) {
 	recentHeads, err := git.GetRecentHeads()
 	if err != nil {
 		return nil, fmt.Errorf("error getting recent heads: %w", err)
 	}
-	mergeBases, err := getMergeBases(targetRef, recentHeads)
+	mergeBases, err := getMergeBases(gitClient, targetRef, recentHeads)
 	if err != nil {
 		return nil, fmt.Errorf("error getting merge bases: %w", err)
 	}
@@ -96,17 +97,23 @@ func getCandidateStack(targetRef string) ([]string, error) {
 }
 
 func run() error {
-	currentBranch, err := git.CurrentBranch()
+	mainBranch := "origin/main"
+	if mainEnv, setMain := os.LookupEnv("GIT_MAIN"); setMain {
+		mainBranch = mainEnv
+	}
+	gitClient := git.Client{MainBranch: mainBranch}
+	currentBranch, err := gitClient.CurrentBranch()
 	if err != nil {
 		return fmt.Errorf("could not get current branch: %w", err)
 	}
-	stackRefs, err := getCandidateStack(currentBranch)
+	stackRefs, err := getCandidateStack(gitClient, currentBranch)
 	if err != nil {
 		return fmt.Errorf("error building stack: %w", err)
 	}
-	if err := sortRefs(stackRefs); err != nil {
+	if err := sortRefs(gitClient, stackRefs); err != nil {
 		return fmt.Errorf("error sorting: %w", err)
 	}
+	slices.Reverse(stackRefs)
 	for _, stackRef := range stackRefs {
 		fmt.Println(stackRef)
 	}
