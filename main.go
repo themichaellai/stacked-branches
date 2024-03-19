@@ -3,25 +3,26 @@ package main
 import (
 	"fmt"
 	"sync"
+
+	"github.com/themichaellai/stacked-branches/git"
 )
 
-func run() error {
-	recentHeads, err := getRecentHeads()
-	if err != nil {
-		return fmt.Errorf("error getting recent heads: %w", err)
+func getRecentHeads() error {
+	recentHeads, errs := git.GetRecentHeads()
+	if errs != nil {
+		return fmt.Errorf("error getting recent heads: %w", errs)
 	}
-	res := make(chan []string, 10)
+	res := make(chan []git.Commit, 10)
+	errChan := make(chan error)
 	go func() {
 		wg := sync.WaitGroup{}
 		for _, ref := range recentHeads[:50] {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				logs, err := getLogs(ref)
-				fmt.Println(ref)
+				logs, err := git.GetLogs(ref)
 				if err != nil {
-					//return fmt.Errorf("error getting logs for ref %s: %w", ref, err)
-					fmt.Printf("error getting logs for ref %s: %s", ref, err)
+					errChan <- fmt.Errorf("error getting logs for ref %s: %w", ref, err)
 				}
 				res <- logs
 			}()
@@ -29,11 +30,23 @@ func run() error {
 		wg.Wait()
 		close(res)
 	}()
-	for _ = range res {
-		//fmt.Printf("%v\n", el[:3])
-		fmt.Println("done")
+	for {
+		select {
+		case el, more := <-res:
+			if !more {
+				fmt.Println("no more")
+				return nil
+			}
+			fmt.Println(el[0])
+		case err := <-errChan:
+			return err
+		}
 	}
-	return nil
+}
+
+func run() error {
+	err := getRecentHeads()
+	return err
 }
 
 func main() {
