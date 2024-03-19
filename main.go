@@ -61,7 +61,17 @@ func getMergeBases(gitClient git.Client, targetRef string, refs []string) (refTo
 	}
 }
 
-func sortRefs(gitClient git.Client, refs []string) error {
+func sortRefs(gitClient git.Client, refs []string, targetRef string) error {
+	// We neeed to compare the merge base with each ref rather than the ref
+	// directly because the ref might have diverged from the target ref.
+	refMergeBaseWithTarget := map[string]string{}
+	for _, ref := range refs {
+		mergeBase, _, err := gitClient.MergeBase(ref, targetRef)
+		if err != nil {
+			return err
+		}
+		refMergeBaseWithTarget[ref] = mergeBase
+	}
 	var err error
 	slices.SortFunc(refs, func(a, b string) int {
 		if err != nil {
@@ -71,7 +81,7 @@ func sortRefs(gitClient git.Client, refs []string) error {
 		if a == b {
 			return 0
 		}
-		isAncestor, err = gitClient.IsAncestor(a, b)
+		isAncestor, err = gitClient.IsAncestor(refMergeBaseWithTarget[a], refMergeBaseWithTarget[b])
 		if isAncestor {
 			return -1
 		}
@@ -80,6 +90,9 @@ func sortRefs(gitClient git.Client, refs []string) error {
 	return err
 }
 
+// TODO: to get branches that are based off this branch, look for other
+// branches that contain commits on the current target ref / have a merge base
+// that is not on main
 func getCandidateStack(gitClient git.Client, targetRef string) ([]string, error) {
 	recentHeads, err := git.GetRecentHeads()
 	if err != nil {
@@ -110,7 +123,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("error building stack: %w", err)
 	}
-	if err := sortRefs(gitClient, stackRefs); err != nil {
+	if err := sortRefs(gitClient, stackRefs, currentBranch); err != nil {
 		return fmt.Errorf("error sorting: %w", err)
 	}
 	slices.Reverse(stackRefs)
